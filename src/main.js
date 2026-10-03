@@ -3,6 +3,8 @@ const path = require('path');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 
 // 经验证的基准时序锁：重构不得缩短、合并或删除。
 const TIMING_LOCKS = Object.freeze({
@@ -44,6 +46,7 @@ let currentAutomationData = null;
 let settingsWriteQueue = Promise.resolve();
 let windowStateSaveTimer = null;
 let storedSettings;
+const trustedPageUrls = new WeakMap();
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 
@@ -111,12 +114,9 @@ function getRestoredWindowBounds() {
 
 function runWindowsPowerShell(scriptContent) {
   return new Promise((resolve) => {
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `teamsecho_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`,
-    );
+    const tmpFile = path.join(os.tmpdir(), `teamsecho_ps_${crypto.randomUUID()}.ps1`);
 
-    fs.writeFile(tmpFile, scriptContent, 'utf8', (writeError) => {
+    fs.writeFile(tmpFile, scriptContent, { encoding: 'utf8', flag: 'wx', mode: 0o600 }, (writeError) => {
       if (writeError) {
         resolve({ err: writeError, stdout: '' });
         return;
@@ -193,10 +193,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
+  hardenLocalWindow(mainWindow, path.join(__dirname, 'index.html'));
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.on('resize', scheduleWindowBoundsSave);
   mainWindow.on('close', (event) => {
@@ -216,14 +220,39 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 
-ipcMain.handle('load-settings', async () => storedSettings || loadStoredSettings());
+function isWindowSender(event, window) {
+  if (!window || window.isDestroyed()) return false;
+  const webContents = window.webContents;
+  const senderFrame = event.senderFrame;
+  return event.sender === webContents
+    && senderFrame === webContents.mainFrame
+    && senderFrame.url === trustedPageUrls.get(webContents);
+}
 
-ipcMain.handle('get-runtime-profile', () => ({
-  platform: process.platform,
-  speedRates: getSpeedRates(),
-}));
+function hardenLocalWindow(window, pagePath) {
+  const expectedUrl = pathToFileURL(pagePath).href;
+  trustedPageUrls.set(window.webContents, expectedUrl);
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => {
+    if (url !== expectedUrl) event.preventDefault();
+  });
+  window.webContents.on('will-attach-webview', (event) => event.preventDefault());
+}
 
-ipcMain.on('save-settings', (_event, settings) => {
+ipcMain.handle('load-settings', async (event) => (
+  isWindowSender(event, mainWindow) ? storedSettings || loadStoredSettings() : null
+));
+
+ipcMain.handle('get-runtime-profile', (event) => {
+  if (!isWindowSender(event, mainWindow)) return null;
+  return {
+    platform: process.platform,
+    speedRates: getSpeedRates(),
+  };
+});
+
+ipcMain.on('save-settings', (event, settings) => {
+  if (!isWindowSender(event, mainWindow)) return;
   queueSettingsSave(settings);
 });
 
@@ -528,10 +557,14 @@ function openSafetyWindow(turboMode) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
+  hardenLocalWindow(safetyWindow, path.join(__dirname, 'safety.html'));
   safetyWindow.loadFile(path.join(__dirname, 'safety.html'));
   safetyWindow.webContents.once('did-finish-load', () => {
     safetyWindow.webContents.send('safety-mode-info', Boolean(turboMode));
@@ -576,13 +609,15 @@ async function runMentionPass(names, speedLevel, turboMode) {
   }
 }
 
-ipcMain.on('trigger-safety-check', (_event, data) => {
+ipcMain.on('trigger-safety-check', (event, data) => {
+  if (!isWindowSender(event, mainWindow)) return;
   currentAutomationData = data;
   isStopping = false;
   openSafetyWindow(Boolean(data?.turboMode));
 });
 
-ipcMain.on('safety-response', async (_event, responseType) => {
+ipcMain.on('safety-response', async (event, responseType) => {
+  if (!isWindowSender(event, safetyWindow)) return;
   if (responseType === 'cancel') {
     if (safetyWindow) safetyWindow.close();
     currentAutomationData = null;
@@ -645,6 +680,7 @@ ipcMain.on('safety-response', async (_event, responseType) => {
   }
 });
 
-ipcMain.on('stop-automation', () => {
+ipcMain.on('stop-automation', (event) => {
+  if (!isWindowSender(event, mainWindow)) return;
   isStopping = true;
 });

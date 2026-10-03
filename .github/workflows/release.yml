@@ -31,10 +31,10 @@ jobs:
             output_prefix: TeamsEcho-windows
     steps:
       - name: 1. 检出源代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: 2. 初始化 Node.js 环境
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
@@ -56,11 +56,16 @@ jobs:
       - name: 6. 固定 Release 资产名
         id: name
         shell: bash
-        run: echo "output_name=${{ matrix.output_prefix }}-${{ github.ref_name }}.zip" >> "$GITHUB_OUTPUT"
+        env:
+          OUTPUT_PREFIX: ${{ matrix.output_prefix }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: printf 'output_name=%s-%s.zip\n' "$OUTPUT_PREFIX" "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: 7. 重命名 macOS 安装包
         if: matrix.target == 'mac'
         shell: bash
+        env:
+          OUTPUT_NAME: ${{ steps.name.outputs.output_name }}
         run: |
           set -euo pipefail
           cd dist
@@ -70,11 +75,13 @@ jobs:
             printf 'Expected exactly one macOS ZIP, found %s: %s\n' "${#packages[@]}" "${packages[*]:-none}" >&2
             exit 1
           fi
-          mv "${packages[0]}" "${{ steps.name.outputs.output_name }}"
+          mv "${packages[0]}" "$OUTPUT_NAME"
 
       - name: 8. 重命名 Windows 安装包
         if: matrix.target == 'win'
         shell: bash
+        env:
+          OUTPUT_NAME: ${{ steps.name.outputs.output_name }}
         run: |
           set -euo pipefail
           cd dist
@@ -84,20 +91,22 @@ jobs:
             printf 'Expected exactly one Windows ZIP, found %s: %s\n' "${#packages[@]}" "${packages[*]:-none}" >&2
             exit 1
           fi
-          mv "${packages[0]}" "${{ steps.name.outputs.output_name }}"
+          mv "${packages[0]}" "$OUTPUT_NAME"
 
       - name: 9. 生成 SHA-256 校验文件
         shell: bash
+        env:
+          OUTPUT_NAME: ${{ steps.name.outputs.output_name }}
         run: |
           cd dist
           if command -v shasum >/dev/null 2>&1; then
-            shasum -a 256 "${{ steps.name.outputs.output_name }}" > "${{ steps.name.outputs.output_name }}.sha256"
+            shasum -a 256 "$OUTPUT_NAME" > "$OUTPUT_NAME.sha256"
           else
-            sha256sum "${{ steps.name.outputs.output_name }}" > "${{ steps.name.outputs.output_name }}.sha256"
+            sha256sum "$OUTPUT_NAME" > "$OUTPUT_NAME.sha256"
           fi
 
       - name: 10. 暂存构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-${{ matrix.target }}-${{ matrix.arch }}
           path: |
@@ -116,7 +125,7 @@ jobs:
       attestations: write
     steps:
       - name: 1. 下载全部构建产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: all-artifacts
           pattern: release-*
@@ -143,7 +152,7 @@ jobs:
       # 实际 Release assets 完全一致。发布后若启用 Immutable Releases，GitHub
       # 还会生成 Release attestation。
       - name: 3. 创建 Draft 并上传最终资产
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
         with:
           tag_name: ${{ github.ref_name }}
           name: TeamsEcho ${{ github.ref_name }}
@@ -160,7 +169,7 @@ jobs:
 
       # 对已在 Draft Release 中、且不会再被修改的最终文件生成 provenance。
       - name: 4. 生成最终 Release 资产构件证明
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             release-dir/TeamsEcho-macos-${{ github.ref_name }}.zip

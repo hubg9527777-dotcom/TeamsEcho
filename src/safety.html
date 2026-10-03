@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>安全核对</title>
   <style>
@@ -69,20 +70,6 @@
     </div>
     <button class="cancel" id="cancelBtn" type="button">取消</button>
   </main>
-  <script>
-    const modeBanner = document.getElementById('modeBanner');
-    document.getElementById('confirmBtn').addEventListener('click', () => window.teamsEchoAPI.safetyResponse('confirm'));
-    document.getElementById('switchBtn').addEventListener('click', () => window.teamsEchoAPI.safetyResponse('switch'));
-    document.getElementById('cancelBtn').addEventListener('click', () => window.teamsEchoAPI.safetyResponse('cancel'));
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') window.teamsEchoAPI.safetyResponse('cancel');
-    });
-    window.teamsEchoAPI.onSafetyModeInfo((turboMode) => {
-      modeBanner.classList.toggle('turbo', turboMode);
-      modeBanner.innerText = turboMode
-        ? '极速模式：@ → 粘贴 → 1 → 删除 → 回车。请先在测试群确认同名或相近姓名不会误选。'
-        : '稳妥模式：@ → 左移 → 粘贴 → 1 → 删除 → 回车。Windows 保留 103ms 搜索/缓冲锁。';
-    });
-  </script>
+  <script src="./safety.js"></script>
 </body>
 </html>
