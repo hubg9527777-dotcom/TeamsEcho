@@ -1,6 +1,6 @@
 {
   "name": "teamsecho",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "Microsoft Teams 桌面自动化辅助工具",
   "main": "src/main.js",
   "author": "",
